@@ -12,7 +12,6 @@ def test_pos_flow():
         r.raise_for_status()
         data = r.json()
         tx_id = data['tx_id']
-        share_b = data['share_b']
         print(f"Success: Created {tx_id}")
         
         # 2. Trigger PIN display

@@ -85,13 +85,13 @@
         </div>
         <div class="amount-big">$<span id="amt-show">—</span></div>
 
-        <div class="share-box">
-            <div class="scan-line"></div>
-            <img id="share-img" src="" alt="Your Share B">
-            <div class="share-label">Your Secure Share B · Overlay on Merchant Screen</div>
+        <div style="text-align:center; padding: 20px; background: rgba(79,70,229,0.1); border-radius: 16px; margin-bottom: 20px; border: 1px dashed rgba(79,70,229,0.3);">
+            <div style="font-size: 2.5rem; margin-bottom: 10px;">🔐</div>
+            <h3 style="color: #c7d2fe; font-size: 1rem; margin-bottom: 8px;">Hardware Sync Required</h3>
+            <p style="color: #94a3b8; font-size: 0.8rem; line-height: 1.5;">Look at the Merchant's ESP32 OLED screen. The noise pattern securely pairs with your session.</p>
         </div>
         <hr>
-        <label>Enter the 4-digit code shown on the merchant's OLED screen</label>
+        <label style="text-align:center; margin-bottom: 16px;">Enter the 4-digit sync code from the hardware display</label>
         <div class="otp-inputs">
             <input type="text" maxlength="1" inputmode="numeric">
             <input type="text" maxlength="1" inputmode="numeric">
@@ -103,10 +103,16 @@
     </div>
 
     <!-- Success -->
-    <div id="success-view">
-        <div class="check">✅</div>
-        <h2>Payment Complete!</h2>
-        <p>Your transaction was securely verified using hardware-backed two-factor authentication.</p>
+    <div id="success-view" style="display:none; text-align:center;">
+        <div class="check" style="font-size:4rem; margin-bottom:16px;">✅</div>
+        <h2 style="color:var(--secondary); margin-bottom:8px;">Payment Verified!</h2>
+        <p style="color:#64748b; font-size:.85rem;">Hardware physically verified via server-side reconstruction.</p>
+        
+        <div style="margin-top: 24px; padding: 16px; background: #fff; border-radius: 16px; display: inline-block; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <img id="reconstructed-img" src="" alt="Verified Signature" style="width: 140px; height: 140px; display: block;">
+        </div>
+        <div style="font-size: .65rem; color: #818cf8; text-transform: uppercase; letter-spacing: 1px; margin-top: 12px; font-weight: 700;">Secure Signature Unlocked</div>
+
         <button class="btn" style="margin-top:28px;" onclick="location.reload()">Done</button>
     </div>
 </div>
@@ -134,7 +140,6 @@
             document.getElementById('payment-view').style.display = 'block';
             document.getElementById('tx-id-show').textContent = data.tx_id;
             document.getElementById('amt-show').textContent = parseFloat(data.amount).toFixed(2);
-            document.getElementById('share-img').src = 'data:image/png;base64,' + data.share_b;
 
             // Wire up OTP inputs
             inputs.forEach((input, i) => {
@@ -170,6 +175,7 @@
         if (data.success) {
             document.getElementById('payment-view').style.display = 'none';
             document.getElementById('success-view').style.display = 'block';
+            document.getElementById('reconstructed-img').src = 'data:image/png;base64,' + data.reconstructed_qr;
         } else {
             showMsg(data.message || 'Invalid code. Check the OLED screen.', 'error');
             inputs.forEach(i => { i.value = ''; i.classList.add('shake'); });

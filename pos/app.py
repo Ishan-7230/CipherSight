@@ -73,11 +73,12 @@ def create_transaction():
     # 2. Generate Hardware Challenge OTP
     otp = str(random.randint(1000, 9999))
 
-    # 3. Store Transaction State server-side (share_b lives here, NOT in the URL)
+    # 3. Store Transaction State server-side (shares live here securely)
     active_txs[tx_id] = {
         "amount": amount,
         "otp": otp,
-        "share_b": matrix_to_base64(share_b),
+        "share_a": share_a,
+        "share_b": share_b,
         "status": "pending"
     }
 
@@ -97,7 +98,7 @@ def create_transaction():
 
 @app.route('/api/transaction/<tx_id>', methods=['GET'])
 def get_transaction(tx_id):
-    """Customer fetches share_b and amount using only the tx_id."""
+    """Customer fetches tx details using only the tx_id."""
     if tx_id not in active_txs:
         return jsonify({"success": False, "message": "Transaction not found"}), 404
     tx = active_txs[tx_id]
@@ -105,7 +106,6 @@ def get_transaction(tx_id):
         "success": True,
         "tx_id": tx_id,
         "amount": tx["amount"],
-        "share_b": tx["share_b"],
         "status": tx["status"]
     })
 
@@ -135,8 +135,20 @@ def verify_payment():
 
     if active_txs[tx_id]["otp"] == user_otp:
         active_txs[tx_id]["status"] = "completed"
+        
+        # Perform Server-Side Reconstruction
+        share_a = active_txs[tx_id]["share_a"]
+        share_b = active_txs[tx_id]["share_b"]
+        reconstructed = shredder.reconstruct(share_a, share_b)
+        reconstructed_b64 = matrix_to_base64(reconstructed)
+        
         print(f"[POS] Transaction {tx_id} COMPLETED ✅")
-        return jsonify({"success": True, "message": "Payment Successful!", "amount": active_txs[tx_id]["amount"]})
+        return jsonify({
+            "success": True, 
+            "message": "Payment Successful!", 
+            "amount": active_txs[tx_id]["amount"],
+            "reconstructed_qr": reconstructed_b64
+        })
     else:
         print(f"[POS] Wrong OTP attempt on {tx_id}: {user_otp}")
         return jsonify({"success": False, "message": "Invalid challenge code. Check the OLED screen."}), 401
