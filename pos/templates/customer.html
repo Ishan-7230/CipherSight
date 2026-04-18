@@ -137,6 +137,17 @@
             const data = await res.json();
 
             document.getElementById('loading-view').style.display = 'none';
+
+            if (data.status === 'completed') {
+                document.getElementById('success-view').style.display = 'block';
+                document.getElementById('success-view').innerHTML = `
+                    <div class="check" style="font-size:4rem; margin-bottom:16px;">✅</div>
+                    <h2 style="color:var(--secondary); margin-bottom:8px;">Payment Already Verified</h2>
+                    <p style="color:#64748b; font-size:.85rem;">This transaction has already been completed.</p>
+                `;
+                return;
+            }
+
             document.getElementById('payment-view').style.display = 'block';
             document.getElementById('tx-id-show').textContent = data.tx_id;
             document.getElementById('amt-show').textContent = parseFloat(data.amount).toFixed(2);
@@ -148,6 +159,19 @@
                 });
                 input.addEventListener('keydown', e => {
                     if (e.key === 'Backspace' && !input.value && i > 0) inputs[i-1].focus();
+                });
+                input.addEventListener('paste', e => {
+                    e.preventDefault();
+                    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, inputs.length);
+                    if (pastedData) {
+                        pastedData.split('').forEach((char, idx) => {
+                            if (inputs[i + idx]) {
+                                inputs[i + idx].value = char;
+                            }
+                        });
+                        const nextFocus = Math.min(i + pastedData.length, inputs.length - 1);
+                        inputs[nextFocus].focus();
+                    }
                 });
             });
             inputs[0].focus();
@@ -164,23 +188,33 @@
         const otp = Array.from(inputs).map(i => i.value).join('');
         if (otp.length !== 4) { showMsg('Enter all 4 digits', 'error'); return; }
 
-        showMsg('Verifying…', 'info');
-        const res = await fetch('/api/verify-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tx_id: txId, otp })
-        });
-        const data = await res.json();
+        const btn = document.querySelector('#payment-view .btn');
+        if (btn) btn.disabled = true;
 
-        if (data.success) {
-            document.getElementById('payment-view').style.display = 'none';
-            document.getElementById('success-view').style.display = 'block';
-            document.getElementById('reconstructed-img').src = 'data:image/png;base64,' + data.reconstructed_qr;
-        } else {
-            showMsg(data.message || 'Invalid code. Check the OLED screen.', 'error');
-            inputs.forEach(i => { i.value = ''; i.classList.add('shake'); });
-            setTimeout(() => inputs.forEach(i => i.classList.remove('shake')), 400);
-            inputs[0].focus();
+        showMsg('Verifying…', 'info');
+        
+        try {
+            const res = await fetch('/api/verify-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tx_id: txId, otp })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                document.getElementById('payment-view').style.display = 'none';
+                document.getElementById('success-view').style.display = 'block';
+                document.getElementById('reconstructed-img').src = 'data:image/png;base64,' + data.reconstructed_qr;
+            } else {
+                if (btn) btn.disabled = false;
+                showMsg(data.message || 'Invalid code. Check the OLED screen.', 'error');
+                inputs.forEach(i => { i.value = ''; i.classList.add('shake'); });
+                setTimeout(() => inputs.forEach(i => i.classList.remove('shake')), 400);
+                inputs[0].focus();
+            }
+        } catch (err) {
+            if (btn) btn.disabled = false;
+            showMsg('Network error. Target Machine refused connection.', 'error');
         }
     }
 

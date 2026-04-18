@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Merchant Dashboard | CipherSight POS</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         :root { --primary:#4f46e5; --bg:#f0f4ff; --card:#fff; --text:#0f172a; --success:#10b981; --danger:#ef4444; }
         * { box-sizing:border-box; margin:0; padding:0; }
@@ -69,7 +69,7 @@
             <p style="font-size:.8rem;color:#64748b;margin-bottom:12px;">Share this QR code or link with your customer</p>
             <div class="link-box" id="customer-link-display"></div>
             <button class="copy-btn" onclick="copyLink()">📋 Copy Link</button>
-            <canvas id="qr-canvas"></canvas>
+            <div id="qrcode" style="display:flex; justify-content:center; padding:10px; background:#fff; border-radius:12px; margin: 0 auto; width: fit-content;"></div>
         </div>
         <hr>
         <div class="pin-section">
@@ -90,6 +90,16 @@
         const btn = document.getElementById('initiate-btn');
         btn.textContent = 'Processing...'; btn.disabled = true;
 
+        // Fetch network info to generate a phone-scannable Local IP link
+        let ip_host = window.location.origin;
+        try {
+            const ipRes = await fetch('/api/network-info');
+            if (ipRes.ok) {
+                const ipData = await ipRes.json();
+                ip_host = `http://${ipData.ip}:${ipData.port}`; 
+            }
+        } catch(e) {}
+
         const res = await fetch('/api/create-transaction', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -99,7 +109,7 @@
         if (data.success) {
             currentTx = data.tx_id;
             // Customer link ONLY contains tx_id — share_b is fetched server-side
-            customerLink = `${window.location.origin}/customer?tx=${data.tx_id}`;
+            customerLink = `${ip_host}/customer?tx=${data.tx_id}`;
 
             document.getElementById('setup-form').style.display = 'none';
             document.getElementById('tx-panel').style.display = 'block';
@@ -107,8 +117,14 @@
             document.getElementById('tx-id-display').textContent = data.tx_id;
             document.getElementById('customer-link-display').textContent = customerLink;
 
-            QRCode.toCanvas(document.getElementById('qr-canvas'), customerLink, {
-                width: 180, color: { dark: '#0f172a', light: '#ffffff' }
+            document.getElementById('qrcode').innerHTML = "";
+            new QRCode(document.getElementById('qrcode'), {
+                text: customerLink,
+                width: 180,
+                height: 180,
+                colorDark : "#0f172a",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
             });
         }
     }

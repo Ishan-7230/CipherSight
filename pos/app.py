@@ -35,14 +35,58 @@ def matrix_to_base64(matrix):
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 
-def mqtt_publish(payload, qos=1):
-    client = mqtt.Client()
+import queue
+import threading
+
+mqtt_queue = queue.Queue()
+
+def mqtt_worker():
+    import time, queue
     try:
-        client.connect(BROKER, PORT, 60)
-        client.publish(TOPIC, payload, qos=qos)
-        client.disconnect()
-    except Exception as e:
-        print(f"[MQTT Error] {e}")
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
+    except AttributeError:
+        client = mqtt.Client()
+    
+    while True:
+        try:
+            item = mqtt_queue.get()
+            if item is None: break
+            
+            # Boot a fresh connection guaranteed to be alive for this burst
+            client.connect(BROKER, PORT, 60)
+            client.loop_start()
+            time.sleep(0.2)
+            
+            payload, qos = item
+            client.publish(TOPIC, payload, qos=qos)
+            
+            # Drain any immediate follow-up payloads (burst mode)
+            while True:
+                try:
+                    next_item = mqtt_queue.get_nowait()
+                    if next_item is None: break
+                    client.publish(TOPIC, next_item[0], qos=next_item[1])
+                except queue.Empty:
+                    break
+                    
+            # Allow the network buffer to flush everything
+            time.sleep(0.5)
+            client.loop_stop()
+            client.disconnect()
+            
+        except Exception as e:
+            print(f"[MQTT Worker Error] {e}")
+            try:
+                client.loop_stop()
+                client.disconnect()
+            except:
+                pass
+            time.sleep(0.5)
+
+threading.Thread(target=mqtt_worker, daemon=True).start()
+
+def mqtt_publish(payload, qos=1):
+    mqtt_queue.put((payload, qos))
 
 
 @app.route('/')
@@ -60,17 +104,36 @@ def customer_portal():
     return render_template('customer.html')
 
 
+@app.route('/api/network-info', methods=['GET'])
+def network_info():
+    return jsonify({"ip": get_local_ip(), "port": 5000})
+
+def get_local_ip():
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        ip = "127.0.0.1"
+    return ip
+
 @app.route('/api/create-transaction', methods=['POST'])
 def create_transaction():
+    import string
+    import random
     data = request.json
-    amount = data.get('amount')
-    tx_id = f"TX{random.randint(1000, 9999)}"
+    amount = data.get("amount")
+    
+    # Use shorter TX ID to guarantee the URL string fits in a Version 3 QR Code (29x29)
+    tx_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    otp = f"{random.randint(1000, 9999)}"
 
     # 1. Generate Transaction Secret (encode payment details into a QR)
     secret_data = f"PAY:ID={tx_id};AMT={amount}"
     share_a, share_b = shredder.shred(secret_data)
 
-    # 2. Generate Hardware Challenge OTP
     otp = str(random.randint(1000, 9999))
 
     # 3. Store Transaction State server-side (shares live here securely)
@@ -82,11 +145,21 @@ def create_transaction():
         "status": "pending"
     }
 
-    # 4. Publish Share A bitmap to Merchant OLED via MQTT
-    payload = orch.prepare_payload(share_a)
-    mqtt_publish(payload)
+    # 5. Generate the standard QR Code for the ESP32 to cache securely
+    base_url = f"http://{get_local_ip()}:5000"
+    customer_url = f"{base_url}/customer?tx={tx_id}"
+    
+    qr_matrix = shredder.generate_qr(customer_url, border=1)
+    qr_payload = orch.prepare_payload(qr_matrix)
+    mqtt_publish(qr_payload) # Cache natively on hardware buffer FIRST
 
-    print(f"[POS] Transaction {tx_id} created — Amount: ${amount} — OTP: {otp}")
+    import time
+    time.sleep(0.1)
+
+    # 6. Broadcast Proximity Protocol commands
+    mqtt_publish("PREPARE") # Tells ESP32 to show proximity prompt and enable BLE
+
+    print(f"[POS] Transaction {tx_id} created - Amount: ${amount} - OTP: {otp}")
 
     # Return only tx_id (not the share_b — customer fetches it separately)
     return jsonify({
@@ -142,7 +215,11 @@ def verify_payment():
         reconstructed = shredder.reconstruct(share_a, share_b)
         reconstructed_b64 = matrix_to_base64(reconstructed)
         
-        print(f"[POS] Transaction {tx_id} COMPLETED ✅")
+        print(f"[POS] Transaction {tx_id} COMPLETED [SUCCESS]")
+        
+        # Trigger OLED Reset & Success Animation
+        mqtt_publish("VERIFIED")
+        
         return jsonify({
             "success": True, 
             "message": "Payment Successful!", 
