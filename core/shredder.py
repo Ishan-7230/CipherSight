@@ -11,7 +11,7 @@ class CipherShredder:
 
     def generate_qr(self, data, box_size=2, border=2):
         qr = qrcode.QRCode(
-            version=1,
+            version=4,
             error_correction=qrcode.constants.ERROR_CORRECT_L,
             box_size=box_size,
             border=border,

@@ -53,6 +53,12 @@
         #success-view .check { font-size:4rem; margin-bottom:16px; }
         #success-view h2 { color:var(--secondary); margin-bottom:8px; }
         #success-view p { color:#64748b; font-size:.85rem; }
+
+        /* Modal / Zoom */
+        #qr-modal { display:none; position:fixed; z-index:100; left:0; top:0; width:100%; height:100%; background:rgba(11,17,32,.95); backdrop-filter:blur(10px); justify-content:center; align-items:center; }
+        #qr-modal img { width:90%; max-width:500px; background:#fff; padding:20px; border-radius:32px; box-shadow:0 0 100px rgba(79,70,229,.4); }
+        .enlarge-btn { display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); color:#94a3b8; font-size:.65rem; padding:8px 14px; border-radius:10px; cursor:pointer; transition:all .2s; margin-top:16px; text-transform:uppercase; letter-spacing:1px; font-weight:700; }
+        .enlarge-btn:hover { background:rgba(255,255,255,.1); color:#fff; transform:scale(1.05); }
     </style>
 </head>
 <body>
@@ -85,10 +91,12 @@
         </div>
         <div class="amount-big">$<span id="amt-show">—</span></div>
 
-        <div style="text-align:center; padding: 20px; background: rgba(79,70,229,0.1); border-radius: 16px; margin-bottom: 20px; border: 1px dashed rgba(79,70,229,0.3);">
-            <div style="font-size: 2.5rem; margin-bottom: 10px;">🔐</div>
-            <h3 style="color: #c7d2fe; font-size: 1rem; margin-bottom: 8px;">Hardware Sync Required</h3>
-            <p style="color: #94a3b8; font-size: 0.8rem; line-height: 1.5;">Look at the Merchant's ESP32 OLED screen. The noise pattern securely pairs with your session.</p>
+        <div style="text-align:center; padding: 20px; background: rgba(79,70,229,0.05); border-radius: 16px; margin-bottom: 20px; border: 1px solid rgba(79,70,229,0.2);">
+            <div style="font-size: .65rem; color: #818cf8; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; font-weight: 700;">Your Unique Share (B)</div>
+            <div style="background: #fff; padding: 10px; border-radius: 12px; display: inline-block; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                <img id="share-b-img" src="" alt="Share B" style="width: 120px; height: 60px; display: block; filter: contrast(1.2);">
+            </div>
+            <p style="color: #94a3b8; font-size: 0.75rem; margin-top: 14px; line-height: 1.4;">This unique pattern pairs with the Merchant Terminal to unlock the secret receipt.</p>
         </div>
         <hr>
         <label style="text-align:center; margin-bottom: 16px;">Enter the 4-digit sync code from the hardware display</label>
@@ -111,9 +119,17 @@
         <div style="margin-top: 24px; padding: 16px; background: #fff; border-radius: 16px; display: inline-block; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
             <img id="reconstructed-img" src="" alt="Verified Signature" style="width: 140px; height: 140px; display: block;">
         </div>
+        <div>
+            <button class="enlarge-btn" onclick="zoomQR()">🔍 Enlarge Signature</button>
+        </div>
         <div style="font-size: .65rem; color: #818cf8; text-transform: uppercase; letter-spacing: 1px; margin-top: 12px; font-weight: 700;">Secure Signature Unlocked</div>
 
         <button class="btn" style="margin-top:28px;" onclick="location.reload()">Done</button>
+    </div>
+
+    <!-- Zoom Modal -->
+    <div id="qr-modal" onclick="this.style.display='none'">
+        <img id="modal-img" src="" alt="Enlarged QR">
     </div>
 </div>
 
@@ -151,6 +167,11 @@
             document.getElementById('payment-view').style.display = 'block';
             document.getElementById('tx-id-show').textContent = data.tx_id;
             document.getElementById('amt-show').textContent = parseFloat(data.amount).toFixed(2);
+
+            // Display Unique Share B
+            if (data.share_b) {
+                document.getElementById('share-b-img').src = 'data:image/png;base64,' + data.share_b;
+            }
 
             // Wire up OTP inputs
             inputs.forEach((input, i) => {
@@ -204,7 +225,9 @@
             if (data.success) {
                 document.getElementById('payment-view').style.display = 'none';
                 document.getElementById('success-view').style.display = 'block';
-                document.getElementById('reconstructed-img').src = 'data:image/png;base64,' + data.reconstructed_qr;
+                const imgData = 'data:image/png;base64,' + data.reconstructed_qr;
+                document.getElementById('reconstructed-img').src = imgData;
+                document.getElementById('modal-img').src = imgData;
             } else {
                 if (btn) btn.disabled = false;
                 showMsg(data.message || 'Invalid code. Check the OLED screen.', 'error');
@@ -221,6 +244,10 @@
     function showMsg(text, type) {
         const el = document.getElementById('msg');
         el.textContent = text; el.className = 'msg ' + type;
+    }
+
+    function zoomQR() {
+        document.getElementById('qr-modal').style.display = 'flex';
     }
 
     init();

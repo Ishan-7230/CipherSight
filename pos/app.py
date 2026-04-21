@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, jsonify
 from PIL import Image
 import numpy as np
 import sys
+import datetime
 
 # Ensure core modules can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -126,42 +127,39 @@ def create_transaction():
     data = request.json
     amount = data.get("amount")
     
-    # Use shorter TX ID to guarantee the URL string fits in a Version 3 QR Code (29x29)
+    # Unique identifiers
     tx_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-    otp = f"{random.randint(1000, 9999)}"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    nonce = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
-    # 1. Generate Transaction Secret (encode payment details into a QR)
-    secret_data = f"PAY:ID={tx_id};AMT={amount}"
+    # 1. Generate Detail-Rich Transaction Secret (Version 4 payload)
+    secret_data = f"SRC:CIPHERSIGHT;ID:{tx_id};AMT:{amount};TS:{timestamp};NONCE:{nonce};STAT:VERIFIED"
+    
+    # 2. Shred the secret into two unique visual shares
     share_a, share_b = shredder.shred(secret_data)
 
     otp = str(random.randint(1000, 9999))
 
-    # 3. Store Transaction State server-side (shares live here securely)
+    # 3. Store Transaction State
     active_txs[tx_id] = {
         "amount": amount,
         "otp": otp,
         "share_a": share_a,
         "share_b": share_b,
-        "status": "pending"
+        "status": "pending",
+        "timestamp": timestamp
     }
 
-    # 5. Generate the standard QR Code for the ESP32 to cache securely
-    base_url = f"http://{get_local_ip()}:5000"
-    customer_url = f"{base_url}/customer?tx={tx_id}"
-    
-    qr_matrix = shredder.generate_qr(customer_url, border=1)
-    qr_payload = orch.prepare_payload(qr_matrix)
-    mqtt_publish(qr_payload) # Cache natively on hardware buffer FIRST
+    # 4. Standard QR Code for Merchant dashboard scanning remains standard.
+    # But for the physical HARDWARE, we send only Share A (Unique Noise).
+    qr_payload = orch.prepare_payload(share_a)
+    mqtt_publish(qr_payload) 
 
-    import time
-    time.sleep(0.1)
+    # 5. Broadcast Proximity Protocol commands
+    mqtt_publish("PREPARE")
 
-    # 6. Broadcast Proximity Protocol commands
-    mqtt_publish("PREPARE") # Tells ESP32 to show proximity prompt and enable BLE
+    print(f"[POS] Transaction {tx_id} created - Details encoded in Unique Visual Shares")
 
-    print(f"[POS] Transaction {tx_id} created - Amount: ${amount} - OTP: {otp}")
-
-    # Return only tx_id (not the share_b — customer fetches it separately)
     return jsonify({
         "success": True,
         "tx_id": tx_id,
@@ -171,15 +169,19 @@ def create_transaction():
 
 @app.route('/api/transaction/<tx_id>', methods=['GET'])
 def get_transaction(tx_id):
-    """Customer fetches tx details using only the tx_id."""
+    """Customer fetches tx details and their unique Share B."""
     if tx_id not in active_txs:
         return jsonify({"success": False, "message": "Transaction not found"}), 404
+    
     tx = active_txs[tx_id]
+    share_b_b64 = matrix_to_base64(tx["share_b"])
+    
     return jsonify({
         "success": True,
         "tx_id": tx_id,
         "amount": tx["amount"],
-        "status": tx["status"]
+        "status": tx["status"],
+        "share_b": share_b_b64
     })
 
 
